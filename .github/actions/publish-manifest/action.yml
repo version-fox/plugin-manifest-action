@@ -1,0 +1,93 @@
+name: 'Publish Plugin Manifest'
+description: 'Generate and publish plugin manifest and release package'
+author: 'version-fox'
+
+inputs:
+  version:
+    description: 'Version to publish (without v prefix)'
+    required: true
+  github-token:
+    description: 'GitHub token for publishing releases'
+    required: true
+    default: ${{ github.token }}
+  lua-version:
+    description: 'Lua version to use'
+    required: false
+    default: '5.3.5'
+  exclude-files:
+    description: 'Files to exclude from zip (glob patterns)'
+    required: false
+    default: '*.git* manifest.json'
+
+outputs:
+  manifest-path:
+    description: 'Path to generated manifest.json file'
+    value: ${{ steps.generate-manifest.outputs.manifest-path }}
+  zip-path:
+    description: 'Path to generated zip file'
+    value: ${{ steps.compress-files.outputs.zip-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set environment variables
+      shell: bash
+      run: |
+        echo "REPO_NAME=$(echo ${{ github.repository }} | cut -d'/' -f2)" >> $GITHUB_ENV
+        echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+
+    - name: Set up Lua
+      uses: leafo/gh-actions-lua@v8
+      with:
+        luaVersion: ${{ inputs.lua-version }}
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install luarocks
+        sudo luarocks install dkjson
+
+    - name: Generate manifest
+      id: generate-manifest
+      shell: bash
+      run: |
+        sudo lua -e '
+        require("metadata"); 
+        local dkjson = require("dkjson"); 
+        PLUGIN.downloadUrl = "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"; 
+        local str = dkjson.encode(PLUGIN); 
+        print(str)' > manifest.json
+        cat manifest.json
+        echo "manifest-path=$(pwd)/manifest.json" >> $GITHUB_OUTPUT
+
+    - name: Compress build files
+      id: compress-files
+      uses: thedoctor0/zip-release@0.7.6
+      with:
+        type: "zip"
+        directory: "./"
+        filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
+        exclusions: ${{ inputs.exclude-files }}
+
+    - name: Set zip output
+      shell: bash
+      run: |
+        echo "zip-path=$(pwd)/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip" >> $GITHUB_OUTPUT
+
+    - name: Publish plugin release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ inputs.github-token }}
+        file: ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip
+        tag: v${{ env.VERSION }}
+        file_glob: true
+
+    - name: Publish manifest
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ inputs.github-token }}
+        file: ./manifest.json
+        tag: "manifest"
+        overwrite: true
+        file_glob: true

@@ -1,0 +1,43 @@
+name: 'Publish Plugin Manifest'
+description: 'Generate and publish plugin manifest and release package for vfox plugins'
+author: 'version-fox'
+branding:
+  icon: 'package'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'Version to publish (without v prefix)'
+    required: true
+  github-token:
+    description: 'GitHub token for publishing releases'
+    required: true
+    default: ${{ github.token }}
+  lua-version:
+    description: 'Lua version to use'
+    required: false
+    default: '5.3.5'
+  exclude-files:
+    description: 'Files to exclude from zip (glob patterns)'
+    required: false
+    default: '*.git* manifest.json'
+
+outputs:
+  manifest-path:
+    description: 'Path to generated manifest.json file'
+    value: ${{ steps.publish.outputs.manifest-path }}
+  zip-path:
+    description: 'Path to generated zip file'
+    value: ${{ steps.publish.outputs.zip-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Publish manifest and release
+      id: publish
+      uses: ./.github/actions/publish-manifest
+      with:
+        version: ${{ inputs.version }}
+        github-token: ${{ inputs.github-token }}
+        lua-version: ${{ inputs.lua-version }}
+        exclude-files: ${{ inputs.exclude-files }}
