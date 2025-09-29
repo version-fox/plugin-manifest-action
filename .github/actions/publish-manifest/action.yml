@@ -37,7 +37,7 @@ runs:
         echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
 
     - name: Set up Lua
-      uses: leafo/gh-actions-lua@v8
+      uses: leafo/gh-actions-lua@v10
       with:
         luaVersion: ${{ inputs.lua-version }}
 
@@ -63,31 +63,21 @@ runs:
 
     - name: Compress build files
       id: compress-files
-      uses: thedoctor0/zip-release@0.7.6
-      with:
-        type: "zip"
-        directory: "./"
-        filename: "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"
-        exclusions: ${{ inputs.exclude-files }}
-
-    - name: Set zip output
       shell: bash
       run: |
+        zip -r "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip" . -x ${{ inputs.exclude-files }}
         echo "zip-path=$(pwd)/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip" >> $GITHUB_OUTPUT
 
     - name: Publish plugin release
-      uses: svenstaro/upload-release-action@v2
-      with:
-        repo_token: ${{ inputs.github-token }}
-        file: ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip
-        tag: v${{ env.VERSION }}
-        file_glob: true
+      shell: bash
+      run: |
+        gh release create v${{ env.VERSION }} ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip --generate-notes
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
 
     - name: Publish manifest
-      uses: svenstaro/upload-release-action@v2
-      with:
-        repo_token: ${{ inputs.github-token }}
-        file: ./manifest.json
-        tag: "manifest"
-        overwrite: true
-        file_glob: true
+      shell: bash
+      run: |
+        gh release create manifest ./manifest.json --generate-notes --clobber
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
