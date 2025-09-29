@@ -52,7 +52,8 @@ runs:
       id: generate-manifest
       shell: bash
       run: |
-        sudo lua -e '
+        lua -e '
+        package.path = package.path .. ";./?.lua"
         require("metadata"); 
         local dkjson = require("dkjson"); 
         PLUGIN.downloadUrl = "https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip"; 
@@ -65,19 +66,40 @@ runs:
       id: compress-files
       shell: bash
       run: |
-        zip -r "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip" . -x ${{ inputs.exclude-files }}
+        # Convert space-separated exclude patterns to zip exclusion format
+        EXCLUDE_PATTERNS="${{ inputs.exclude-files }}"
+        ZIP_EXCLUDES=""
+        for pattern in $EXCLUDE_PATTERNS; do
+          ZIP_EXCLUDES="$ZIP_EXCLUDES -x $pattern"
+        done
+        
+        zip -r "${{ env.REPO_NAME }}-${{ env.VERSION }}.zip" . $ZIP_EXCLUDES
         echo "zip-path=$(pwd)/${{ env.REPO_NAME }}-${{ env.VERSION }}.zip" >> $GITHUB_OUTPUT
 
     - name: Publish plugin release
       shell: bash
       run: |
-        gh release create v${{ env.VERSION }} ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip --generate-notes
+        # Check if release already exists
+        if gh release view v${{ env.VERSION }} >/dev/null 2>&1; then
+          echo "Release v${{ env.VERSION }} already exists, uploading asset..."
+          gh release upload v${{ env.VERSION }} ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip --clobber
+        else
+          echo "Creating new release v${{ env.VERSION }}..."
+          gh release create v${{ env.VERSION }} ./${{ env.REPO_NAME }}-${{ env.VERSION }}.zip --generate-notes
+        fi
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
 
     - name: Publish manifest
       shell: bash
       run: |
-        gh release create manifest ./manifest.json --generate-notes --clobber
+        # Check if manifest release already exists
+        if gh release view manifest >/dev/null 2>&1; then
+          echo "Manifest release already exists, uploading asset..."
+          gh release upload manifest ./manifest.json --clobber
+        else
+          echo "Creating new manifest release..."
+          gh release create manifest ./manifest.json --generate-notes
+        fi
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
