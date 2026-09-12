@@ -35,6 +35,13 @@ jobs:
         with:
           go-version-file: release-tool/go.mod
           cache-dependency-path: release-tool/go.sum
+      - name: Check opt-in Lua formatting
+        if: ${{ hashFiles('plugin/stylua.toml') != '' }}
+        uses: JohnnyMorganz/stylua-action@479972f01e665acfcba96ada452c36608bdbbb5e # v4
+        with:
+          token: ${{ github.token }}
+          version: v2.5.2
+          args: --check --config-path plugin/stylua.toml plugin
       - name: Validate metadata, Lua syntax and package
         working-directory: release-tool
         env:
