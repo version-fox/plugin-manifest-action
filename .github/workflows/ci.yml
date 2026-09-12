@@ -1,0 +1,27 @@
+name: Release Tool CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Test release logic
+        run: go test ./... -race
+      - name: Build release tool
+        env:
+          TOOL_BINARY: ${{ runner.temp }}/plugin-release
+        run: go build -o "$TOOL_BINARY" ./cmd/plugin-release
+      - name: Check workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

@@ -1,0 +1,35 @@
+name: Check Plugin
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: plugin
+          persist-credentials: false
+      - name: Checkout release tool
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: version-fox/plugin-manifest-action
+          ref: v1.0.0 # release-tool-version
+          path: release-tool
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: release-tool/go.mod
+          cache-dependency-path: release-tool/go.sum
+      - name: Validate metadata, Lua syntax and package
+        working-directory: release-tool
+        env:
+          PLUGIN_REPOSITORY: ${{ github.repository }}
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/plugin-check
+        run: go run ./cmd/plugin-release check --source ../plugin --repository "$PLUGIN_REPOSITORY" --out "$ARTIFACT_DIRECTORY"

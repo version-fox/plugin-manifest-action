@@ -1,0 +1,39 @@
+name: Release Tool
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tool version, for example 1.0.1 (does not release plugins)'
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tool
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source and tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+      - name: Test release logic
+        run: go test ./... -race
+      - name: Check workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Publish tool version and update its major alias
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: go run ./cmd/plugin-release release-tool

@@ -1,0 +1,48 @@
+name: Release Plugin
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Stable plugin version without v; inferred from the tag for tag pushes
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vfox-plugin-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout plugin source and tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: plugin
+      - name: Checkout release tool
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: version-fox/plugin-manifest-action
+          ref: v1.0.0 # release-tool-version
+          path: release-tool
+          persist-credentials: false
+      - name: Setup Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: release-tool/go.mod
+          cache-dependency-path: release-tool/go.sum
+      - name: Validate, tag and publish plugin
+        working-directory: release-tool
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          ARTIFACT_DIRECTORY: ${{ runner.temp }}/plugin-release
+        run: go run ./cmd/plugin-release publish --source ../plugin --out "$ARTIFACT_DIRECTORY"
