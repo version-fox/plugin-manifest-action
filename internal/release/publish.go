@@ -47,16 +47,47 @@ type ReleaseStore interface {
 }
 
 // GitHub uses gh's existing authentication. No token is passed on the command line.
-type GitHub struct{ Repository string }
+type GitHub struct {
+	Repository string
+	run        func(args ...string) ([]byte, error)
+}
+
+func (g GitHub) command(args ...string) ([]byte, error) {
+	if g.run != nil {
+		return g.run(args...)
+	}
+	return command("", "gh", args...)
+}
 
 func (g GitHub) Lookup(tag string) (*RemoteRelease, error) {
-	return g.lookup("tags/" + tag)
+	release, err := g.lookup("tags/" + tag)
+	if err != nil || release != nil {
+		return release, err
+	}
+	// The tag endpoint only returns published releases. Authenticated release
+	// listings also include drafts, including drafts left by an interrupted run.
+	out, err := g.command("api", "--paginate", "--slurp", "repos/"+g.Repository+"/releases?per_page=100")
+	if err != nil {
+		return nil, err
+	}
+	var pages [][]RemoteRelease
+	if err := json.Unmarshal(out, &pages); err != nil {
+		return nil, err
+	}
+	for _, page := range pages {
+		for _, candidate := range page {
+			if candidate.TagName == tag {
+				return &candidate, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 func (g GitHub) Latest() (*RemoteRelease, error) { return g.lookup("latest") }
 
 func (g GitHub) lookup(path string) (*RemoteRelease, error) {
-	out, err := command("", "gh", "api", "repos/"+g.Repository+"/releases/"+path)
+	out, err := g.command("api", "repos/"+g.Repository+"/releases/"+path)
 	if err != nil {
 		if strings.Contains(err.Error(), "HTTP 404") {
 			return nil, nil
@@ -77,14 +108,14 @@ func (g GitHub) Create(tag, commit string) (*RemoteRelease, error) {
 	} else {
 		args = append(args, "--verify-tag", "--generate-notes")
 	}
-	if _, err := command("", "gh", args...); err != nil {
+	if _, err := g.command(args...); err != nil {
 		return nil, err
 	}
 	return g.Lookup(tag)
 }
 
 func (g GitHub) Download(asset RemoteAsset) ([]byte, error) {
-	return command("", "gh", "api", fmt.Sprintf("repos/%s/releases/assets/%d", g.Repository, asset.ID), "-H", "Accept: application/octet-stream")
+	return g.command("api", fmt.Sprintf("repos/%s/releases/assets/%d", g.Repository, asset.ID), "-H", "Accept: application/octet-stream")
 }
 
 func (g GitHub) Upload(tag, path string, replace bool) error {
@@ -92,12 +123,12 @@ func (g GitHub) Upload(tag, path string, replace bool) error {
 	if replace {
 		args = append(args, "--clobber")
 	}
-	_, err := command("", "gh", args...)
+	_, err := g.command(args...)
 	return err
 }
 
 func (g GitHub) Publish(tag string, latest bool) error {
-	_, err := command("", "gh", "release", "edit", tag, "--repo", g.Repository, "--draft=false", fmt.Sprintf("--latest=%t", latest))
+	_, err := g.command("release", "edit", tag, "--repo", g.Repository, "--draft=false", fmt.Sprintf("--latest=%t", latest))
 	return err
 }
 

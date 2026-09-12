@@ -19,38 +19,36 @@ package release
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
 func toolFixture(t *testing.T) (string, string) {
 	t.Helper()
 	root, _, _ := gitFixture(t)
-	for _, name := range toolWorkflows {
-		if err := os.WriteFile(filepath.Join(root, name), []byte("steps:\n  - with:\n      ref: v1.0.0 # release-tool-version\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(filepath.Join(root, toolVersionFile), []byte("1.0.0\n"), 0644); err != nil {
+		t.Fatal(err)
 	}
 	testGit(t, root, "add", ".")
-	testGit(t, root, "commit", "-m", "Add tool workflows")
+	testGit(t, root, "commit", "-m", "Add tool version")
 	testGit(t, root, "push", "origin", "main")
 	return root, testGit(t, root, "rev-parse", "HEAD")
 }
 
-func TestToolReleasePinsScriptsAndRetries(t *testing.T) {
+func TestToolReleaseChangesOnlyVersionAndRetries(t *testing.T) {
 	root, source := toolFixture(t)
 	first, err := PrepareTool(root, "1.0.1", source, "refs/heads/main", "main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range toolWorkflows {
-		data, err := os.ReadFile(filepath.Join(root, name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(data), "ref: v1.0.1 # release-tool-version") {
-			t.Fatalf("workflow did not pin its own tool version: %s", data)
-		}
+	data, err := os.ReadFile(filepath.Join(root, toolVersionFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "1.0.1\n" {
+		t.Fatalf("unexpected VERSION: %s", data)
+	}
+	if changed := testGit(t, root, "diff", "--name-only", source, first.Commit); changed != toolVersionFile {
+		t.Fatalf("tool release changed files besides VERSION: %s", changed)
 	}
 	if err := first.Push(); err != nil {
 		t.Fatal(err)

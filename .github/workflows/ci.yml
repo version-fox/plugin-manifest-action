@@ -8,6 +8,18 @@ permissions:
   contents: read
 
 jobs:
+  plugin-smoke:
+    strategy:
+      matrix:
+        repository:
+          - version-fox/vfox-nodejs
+          - version-fox/vfox-java
+          - version-fox/vfox-flutter
+          - version-fox/vfox-plugin-template
+    uses: ./.github/workflows/check-plugin.yml
+    with:
+      repository: ${{ matrix.repository }}
+
   test:
     runs-on: ubuntu-latest
     steps:

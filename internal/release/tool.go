@@ -25,26 +25,29 @@ import (
 	"strings"
 )
 
-var toolWorkflows = []string{".github/workflows/check-plugin.yml", ".github/workflows/release-plugin.yml"}
-var toolRef = regexp.MustCompile(`(?m)^(\s*ref: )v[0-9]+\.[0-9]+\.[0-9]+( # release-tool-version)$`)
+const toolVersionFile = "VERSION"
 
 func toolVersionFiles(root, version string) (map[string][]byte, error) {
-	files := map[string][]byte{}
-	for _, path := range toolWorkflows {
-		data, err := os.ReadFile(filepath.Join(root, path))
-		if err != nil {
-			return nil, err
-		}
-		if len(toolRef.FindAll(data, -1)) != 1 {
-			return nil, fmt.Errorf("expected one release-tool-version marker in %s", path)
-		}
-		files[path] = toolRef.ReplaceAll(data, []byte("${1}v"+version+"${2}"))
+	data, err := os.ReadFile(filepath.Join(root, toolVersionFile))
+	if err != nil {
+		return nil, err
 	}
-	return files, nil
+	current := strings.TrimSpace(string(data))
+	if _, err := ParseVersion(current); err != nil {
+		return nil, err
+	}
+	cmp, err := CompareVersions(version, current)
+	if err != nil {
+		return nil, err
+	}
+	if cmp < 0 {
+		return nil, fmt.Errorf("requested tool version is older than VERSION")
+	}
+	return map[string][]byte{toolVersionFile: []byte(version + "\n")}, nil
 }
 
-// PrepareTool pins both reusable workflows to the exact release of their scripts.
-// A caller choosing a concrete workflow tag therefore never executes scripts from main/v1.
+// PrepareTool updates only VERSION. Reusable workflows check out job.workflow_sha,
+// so releases never need workflow-file writes that GITHUB_TOKEN cannot authorize.
 func PrepareTool(root, version, source, ref, branch string) (*Snapshot, error) {
 	if _, err := ParseVersion(version); err != nil {
 		return nil, err
@@ -108,7 +111,7 @@ func PrepareTool(root, version, source, ref, branch string) (*Snapshot, error) {
 				return nil, err
 			}
 			if !bytes.Equal(actual, expected) {
-				return nil, fmt.Errorf("tool tag contains different workflow code")
+				return nil, fmt.Errorf("tool tag contains a different VERSION")
 			}
 		}
 		if _, err := git(root, "checkout", "--detach", commit); err != nil {
@@ -128,7 +131,7 @@ func PrepareTool(root, version, source, ref, branch string) (*Snapshot, error) {
 			return nil, err
 		}
 	}
-	if _, err := git(root, append([]string{"add", "--"}, toolWorkflows...)...); err != nil {
+	if _, err := git(root, "add", "--", toolVersionFile); err != nil {
 		return nil, err
 	}
 	changed, err := git(root, "diff", "--cached", "--name-only")
@@ -167,21 +170,17 @@ func majorRef(root, version string) (string, string, error) {
 	if _, err := git(root, "fetch", "origin", ref); err != nil {
 		return "", "", err
 	}
-	data, err := command(root, "git", "show", fields[0]+":.github/workflows/release-plugin.yml")
+	data, err := command(root, "git", "show", fields[0]+":"+toolVersionFile)
 	if err != nil {
 		return "", "", err
 	}
-	m := toolRef.FindSubmatch(data)
-	if m == nil {
-		return "", "", fmt.Errorf("major tag does not identify a release tool version")
-	}
-	current := regexp.MustCompile(`v([0-9]+\.[0-9]+\.[0-9]+)`).FindSubmatch(m[0])
-	cmp, err := CompareVersions(version, string(current[1]))
+	current := strings.TrimSpace(string(data))
+	cmp, err := CompareVersions(version, current)
 	if err != nil {
 		return "", "", err
 	}
 	if cmp < 0 {
-		return "", "", fmt.Errorf("refusing to move %s back from %s to %s", ref, current[1], version)
+		return "", "", fmt.Errorf("refusing to move %s back from %s to %s", ref, current, version)
 	}
 	return ref, fields[0], nil
 }

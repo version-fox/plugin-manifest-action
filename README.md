@@ -97,12 +97,15 @@ manifest 更新失败时，可以重跑原任务，无需再发一个插件版�
 
 1. 将公共工具改动合入默认分支。
 2. 打开 **Actions → Release Tool → Run workflow**，输入工具版本，例如 `1.0.1`。
-3. 测试和 workflow 检查通过后，流程将两个公共 workflow 的工具引用固定到该版本，
-   创建版本提交、tag 和 Release，再更新对应的主版本引用 `v1`。
+3. 测试和 workflow 检查通过后，流程更新 `VERSION` 文件，创建版本提交、tag 和
+   Release，再更新对应的主版本引用 `v1`。
 
 插件保持引用 `@v1`，下次主动运行时使用新版。`@v1.0.1` 等具体版本标签不移动。
-公共 workflow 内部也固定引用其配套的具体工具版本，避免固定版本的 workflow
-实际执行 `main` 或 `v1` 上更新后的代码。不兼容的变化需要发布新的主版本。
+公共 workflow 通过 GitHub 的
+[`job.workflow_sha`](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context)
+检出定义当前任务的同一提交，固定版本的 workflow 始终执行其配套代码。
+发版只修改 `VERSION`，无需内置 token 不支持的 workflow 写权限。
+这套流程面向 GitHub.com。不兼容的变化需要发布新的主版本。
 主版本 tag 的更新使用 lease 检测外部并发修改，也拒绝由旧任务回退主版本。
 
 具体版本标签关联 GitHub Release；可移动的主版本引用只创建 Git tag。
@@ -135,6 +138,7 @@ go run ./cmd/plugin-release check \
 
 `check` 只生成本地附件，不修改插件版本、提交、tag 或 GitHub Release。
 默认测试使用临时 Git 仓库和内存发布存储，覆盖失败及重试，不连接 GitHub。
+公共 CI 还会调用同一公共检查流程，读取 Java、Node.js、Flutter 和模板进行打包检查。
 需要验证真实 gh 读取协议时，可显式运行只读检查：
 
 ```bash

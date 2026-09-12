@@ -2,6 +2,12 @@ name: Check Plugin
 
 on:
   workflow_call:
+    inputs:
+      repository:
+        description: Plugin repository to check; defaults to the caller
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -13,13 +19,15 @@ jobs:
       - name: Checkout plugin
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          repository: ${{ inputs.repository || github.repository }}
           path: plugin
           persist-credentials: false
       - name: Checkout release tool
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: version-fox/plugin-manifest-action
-          ref: v1.0.0 # release-tool-version
+          # JSON round-trip lets actionlint v1.7.12 accept this new job property.
+          ref: ${{ fromJSON(toJSON(job)).workflow_sha }}
           path: release-tool
           persist-credentials: false
       - name: Setup Go
@@ -30,6 +38,9 @@ jobs:
       - name: Validate metadata, Lua syntax and package
         working-directory: release-tool
         env:
-          PLUGIN_REPOSITORY: ${{ github.repository }}
+          PLUGIN_REPOSITORY: ${{ inputs.repository || github.repository }}
           ARTIFACT_DIRECTORY: ${{ runner.temp }}/plugin-check
-        run: go run ./cmd/plugin-release check --source ../plugin --repository "$PLUGIN_REPOSITORY" --out "$ARTIFACT_DIRECTORY"
+          TOOL_WORKFLOW_SHA: ${{ fromJSON(toJSON(job)).workflow_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$TOOL_WORKFLOW_SHA"
+          go run ./cmd/plugin-release check --source ../plugin --repository "$PLUGIN_REPOSITORY" --out "$ARTIFACT_DIRECTORY"
