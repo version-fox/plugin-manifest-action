@@ -10,12 +10,30 @@ permissions:
 jobs:
   plugin-smoke:
     strategy:
+      max-parallel: 6
       matrix:
         repository:
           - version-fox/vfox-nodejs
           - version-fox/vfox-java
           - version-fox/vfox-flutter
           - version-fox/vfox-plugin-template
+          - version-fox/vfox-elixir
+          - version-fox/vfox-cmake
+          - version-fox/vfox-erlang
+          - version-fox/vfox-etcd
+          - version-fox/vfox-python
+          - version-fox/vfox-golang
+          - version-fox/vfox-clang
+          - version-fox/vfox-maven
+          - version-fox/vfox-php
+          - version-fox/vfox-deno
+          - version-fox/vfox-dotnet
+          - version-fox/vfox-kotlin
+          - version-fox/vfox-zig
+          - version-fox/vfox-gradle
+          - version-fox/vfox-dart
+          - version-fox/vfox-scala
+          - version-fox/vfox-groovy
     uses: ./.github/workflows/check-plugin.yml
     with:
       repository: ${{ matrix.repository }}

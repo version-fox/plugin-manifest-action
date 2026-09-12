@@ -20,6 +20,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,5 +171,65 @@ func TestStableVersionValidation(t *testing.T) {
 	}
 	if c, err := CompareVersions("1.10.0", "1.9.99"); err != nil || c <= 0 {
 		t.Fatalf("numeric comparison failed: %d, %v", c, err)
+	}
+}
+
+func TestBuildIncludesRuntimeBinaries(t *testing.T) {
+	root := fixture(t)
+	installer := []byte("#!/bin/sh\nexit 0\n")
+	binary := []byte{'M', 'Z', 0, 255, 1}
+	if err := os.MkdirAll(filepath.Join(root, "bin", "WiX"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "install"), installer, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "WiX", "dark.exe"), binary, 0644); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := Build(root, t.TempDir(), "version-fox/vfox-example", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Build(root, t.TempDir(), "version-fox/vfox-example", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.SHA256 != second.SHA256 {
+		t.Fatal("runtime binaries made the archive nondeterministic")
+	}
+	archive, err := zip.OpenReader(bundle.Archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+	want := map[string][]byte{"bin/install": installer, "bin/WiX/dark.exe": binary}
+	for _, file := range archive.File {
+		expected, ok := want[file.Name]
+		if !ok {
+			continue
+		}
+		r, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, readErr := io.ReadAll(r)
+		closeErr := r.Close()
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("read archive: %v, %v", readErr, closeErr)
+		}
+		if !bytes.Equal(data, expected) {
+			t.Fatalf("runtime binary changed: %s", file.Name)
+		}
+		if file.Name == "bin/install" && file.Mode().Perm() != 0755 {
+			t.Fatalf("installer lost its executable mode: %v", file.Mode())
+		}
+		if file.Name == "bin/WiX/dark.exe" && file.Mode().Perm() != 0644 {
+			t.Fatalf("unexpected binary mode: %v", file.Mode())
+		}
+		delete(want, file.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("runtime helpers are missing from plugin archive: %v", want)
 	}
 }

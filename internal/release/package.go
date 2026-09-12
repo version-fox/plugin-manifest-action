@@ -266,7 +266,7 @@ func Build(root, out, repository, version string) (*Bundle, error) {
 		if rel == "." {
 			return nil
 		}
-		included := rel == "metadata.lua" || rel == "LICENSE" || rel == "LICENSE.md" || rel == "LICENSE.txt" || rel == "hooks" || rel == "lib" || strings.HasPrefix(rel, "hooks/") || strings.HasPrefix(rel, "lib/")
+		included := rel == "metadata.lua" || rel == "LICENSE" || rel == "LICENSE.md" || rel == "LICENSE.txt" || rel == "hooks" || rel == "lib" || rel == "bin" || strings.HasPrefix(rel, "hooks/") || strings.HasPrefix(rel, "lib/") || strings.HasPrefix(rel, "bin/")
 		if !included {
 			if entry.IsDir() {
 				return filepath.SkipDir
@@ -311,6 +311,15 @@ func Build(root, out, repository, version string) (*Bundle, error) {
 		}
 		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
 		header.SetMode(0644)
+		if strings.HasPrefix(name, "bin/") {
+			info, err := os.Stat(filepath.Join(root, name))
+			if err != nil {
+				return nil, err
+			}
+			if info.Mode().Perm()&0111 != 0 {
+				header.SetMode(0755)
+			}
+		}
 		header.SetModTime(time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC))
 		entry, err := writer.CreateHeader(header)
 		if err != nil {

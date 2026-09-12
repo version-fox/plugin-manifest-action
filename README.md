@@ -53,7 +53,7 @@ tag 发布不会修改标签中的源码。
 
 ## 插件包与检查范围
 
-当前支持 Java、Node.js、Flutter 和模板使用的 `metadata.lua` + `hooks/` 布局。
+支持官方插件和模板使用的 `metadata.lua` + `hooks/` 布局。
 遇到 `main.lua` 布局会明确报错，避免打包未经检查的入口。
 
 - `metadata.lua` 必须定义 `PLUGIN`，包含 name、version、homepage、license 和
@@ -61,12 +61,14 @@ tag 发布不会修改标签中的源码。
   赋值，与模板一致。
 - 必需文件 `hooks/available.lua`、`hooks/pre_install.lua`、`hooks/env_keys.lua`
   分别直接定义 `PLUGIN:Available`、`PLUGIN:PreInstall`、`PLUGIN:EnvKeys`。
-- 包含 `metadata.lua`、`hooks/`、`lib/`，以及可选的 `LICENSE`、`LICENSE.md` 或
-  `LICENSE.txt`。运行时数据文件放在 `lib/`。不包含开发文档、IDE 提示、workflow、
+- 包含 `metadata.lua`、`hooks/`、`lib/`、`bin/`，以及可选的 `LICENSE`、`LICENSE.md` 或
+  `LICENSE.txt`。运行时数据文件放在 `lib/`，随插件分发的安装辅助工具放在 `bin/`。
+  例如 Python 的 WiX 文件和 PHP 的安装脚本都会打包。不包含开发文档、IDE 提示、workflow、
   Git 数据；不接受符号链接。
 - 使用与 vfox 一致的 GopherLua（Lua 5.1）加载元数据并检查 Lua 语法。
   检查不会执行生命周期 hook 或下载安装 SDK，不能代替插件行为测试。
-- ZIP 文件顺序、时间戳和权限固定；相同源码和工具链产生相同附件。
+- ZIP 文件顺序、时间戳和权限规范化；`bin/` 中的可执行文件保留可执行权限。
+  相同源码和工具链产生相同附件。
 - metadata、tag、文件名和 manifest 的版本必须一致，manifest 包含 ZIP 的 SHA-256。
 
 版本 Release 包含 ZIP 和该版本的 `manifest.json`，发布后不再改写。
@@ -138,7 +140,7 @@ go run ./cmd/plugin-release check \
 
 `check` 只生成本地附件，不修改插件版本、提交、tag 或 GitHub Release。
 默认测试使用临时 Git 仓库和内存发布存储，覆盖失败及重试，不连接 GitHub。
-公共 CI 还会调用同一公共检查流程，读取 Java、Node.js、Flutter 和模板进行打包检查。
+公共 CI 还会调用同一公共检查流程，对官方公开插件和模板逐个进行打包检查。
 需要验证真实 gh 读取协议时，可显式运行只读检查：
 
 ```bash
