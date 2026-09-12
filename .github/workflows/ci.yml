@@ -24,4 +24,6 @@ jobs:
           TOOL_BINARY: ${{ runner.temp }}/plugin-release
         run: go build -o "$TOOL_BINARY" ./cmd/plugin-release
       - name: Check workflows
+        env:
+          GOTOOLCHAIN: auto
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12

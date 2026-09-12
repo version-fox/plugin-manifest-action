@@ -128,7 +128,7 @@ Lua 解析器，无需在 runner 上安装系统 Lua、LuaRocks 或 dkjson。
 
 ```bash
 go test ./... -race
-go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+GOTOOLCHAIN=auto go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 go run ./cmd/plugin-release check \
   --source ../vfox-nodejs --repository version-fox/vfox-nodejs --out /tmp/nodejs-check
 ```

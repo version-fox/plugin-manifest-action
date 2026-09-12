@@ -30,6 +30,8 @@ jobs:
       - name: Test release logic
         run: go test ./... -race
       - name: Check workflows
+        env:
+          GOTOOLCHAIN: auto
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Publish tool version and update its major alias
         env:
