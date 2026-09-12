@@ -60,34 +60,46 @@ func (g GitHub) command(args ...string) ([]byte, error) {
 }
 
 func (g GitHub) Lookup(tag string) (*RemoteRelease, error) {
-	release, err := g.lookup("tags/" + tag)
-	if err != nil || release != nil {
-		return release, err
+	owner, name, ok := strings.Cut(g.Repository, "/")
+	if !ok {
+		return nil, fmt.Errorf("invalid owner/repository")
 	}
-	// The tag endpoint only returns published releases. Authenticated release
-	// listings also include drafts, including drafts left by an interrupted run.
-	out, err := g.command("api", "--paginate", "--slurp", "repos/"+g.Repository+"/releases?per_page=100")
+	// Like gh release view, resolve the release ID through GraphQL. The REST
+	// tag endpoint excludes drafts, and release listings can lag behind writes.
+	const query = `query($owner: String!, $name: String!, $tag: String!) {
+        repository(owner: $owner, name: $name) { release(tagName: $tag) { databaseId } }
+    }`
+	out, err := g.command("api", "graphql", "-f", "query="+query,
+		"-f", "owner="+owner, "-f", "name="+name, "-f", "tag="+tag)
 	if err != nil {
 		return nil, err
 	}
-	var pages [][]RemoteRelease
-	if err := json.Unmarshal(out, &pages); err != nil {
+	var result struct {
+		Data struct {
+			Repository struct {
+				Release *struct {
+					ID int64 `json:"databaseId"`
+				} `json:"release"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
 		return nil, err
 	}
-	for _, page := range pages {
-		for _, candidate := range page {
-			if candidate.TagName == tag {
-				return &candidate, nil
-			}
-		}
+	release := result.Data.Repository.Release
+	if release == nil {
+		return nil, nil
 	}
-	return nil, nil
+	if release.ID <= 0 {
+		return nil, fmt.Errorf("release has no database ID")
+	}
+	return g.lookup(fmt.Sprint(release.ID))
 }
 
 func (g GitHub) Latest() (*RemoteRelease, error) { return g.lookup("latest") }
 
 func (g GitHub) lookup(path string) (*RemoteRelease, error) {
-	out, err := g.command("api", "repos/"+g.Repository+"/releases/"+path)
+	out, err := g.command("api", "repos/"+g.Repository+"/releases/"+path, "-H", "Cache-Control: no-cache")
 	if err != nil {
 		if strings.Contains(err.Error(), "HTTP 404") {
 			return nil, nil
@@ -102,16 +114,32 @@ func (g GitHub) lookup(path string) (*RemoteRelease, error) {
 }
 
 func (g GitHub) Create(tag, commit string) (*RemoteRelease, error) {
-	args := []string{"release", "create", tag, "--repo", g.Repository, "--draft", "--title", tag}
-	if tag == "manifest" {
-		args = append(args, "--target", commit, "--notes", "Stable plugin manifest consumed by the vfox registry.", "--latest=false")
-	} else {
-		args = append(args, "--verify-tag", "--generate-notes")
+	if tag != "manifest" {
+		if _, err := g.command("api", "repos/"+g.Repository+"/git/ref/tags/"+tag); err != nil {
+			return nil, err
+		}
 	}
-	if _, err := g.command(args...); err != nil {
+	args := []string{"api", "--method", "POST", "repos/" + g.Repository + "/releases",
+		"-f", "tag_name=" + tag, "-f", "target_commitish=" + commit, "-f", "name=" + tag, "-F", "draft=true"}
+	if tag == "manifest" {
+		args = append(args, "-f", "body=Stable plugin manifest consumed by the vfox registry.", "-f", "make_latest=false")
+	} else {
+		args = append(args, "-F", "generate_release_notes=true")
+	}
+	out, err := g.command(args...)
+	if err != nil {
 		return nil, err
 	}
-	return g.Lookup(tag)
+	// Use the write response rather than waiting for a separate read to reflect
+	// the new draft. Its ID and assets are authoritative for this operation.
+	var release RemoteRelease
+	if err := json.Unmarshal(out, &release); err != nil {
+		return nil, err
+	}
+	if release.ID <= 0 || release.TagName != tag || !release.Draft {
+		return nil, fmt.Errorf("create release returned an invalid draft")
+	}
+	return &release, nil
 }
 
 func (g GitHub) Download(asset RemoteAsset) ([]byte, error) {

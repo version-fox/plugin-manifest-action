@@ -84,45 +84,55 @@ func TestGitHubReadOnlyProtocol(t *testing.T) {
 		t.Fatal("downloaded archive is empty")
 	}
 	if missing, err := store.Lookup("v0.0.0-vfox-release-read-only-probe"); err != nil || missing != nil {
-		t.Fatalf("404 handling failed: %#v, %v", missing, err)
+		t.Fatalf("missing release handling failed: %#v, %v", missing, err)
 	}
 }
 
-func TestGitHubLookupDraftAfterPublishedEndpoint404(t *testing.T) {
-	store := GitHub{Repository: "owner/plugin", run: func(args ...string) ([]byte, error) {
-		if strings.Contains(strings.Join(args, " "), "/releases/tags/") {
-			return nil, fmt.Errorf("gh: Not Found (HTTP 404)")
-		}
-		return []byte(`[[{"id":1,"tag_name":"v0.9.0","draft":false}], [{"id":2,"tag_name":"v1.0.0","draft":true,"assets":[{"id":3,"name":"plugin.zip"}]}]]`), nil
-	}}
-	release, err := store.Lookup("v1.0.0")
-	if err != nil || release == nil || !release.Draft || release.ID != 2 || len(release.Assets) != 1 {
-		t.Fatalf("draft release was not recovered: %#v, %v", release, err)
-	}
-	missing, err := store.Lookup("v9.0.0")
-	if err != nil || missing != nil {
-		t.Fatalf("missing release: %#v, %v", missing, err)
+func TestGitHubLookupResolvesDraftAndPublishedReleases(t *testing.T) {
+	for _, draft := range []bool{true, false} {
+		t.Run(fmt.Sprint(draft), func(t *testing.T) {
+			store := GitHub{Repository: "owner/plugin", run: func(args ...string) ([]byte, error) {
+				if len(args) > 1 && args[1] == "graphql" {
+					if args[len(args)-1] == "tag=v9.0.0" {
+						return []byte(`{"data":{"repository":{"release":null}}}`), nil
+					}
+					return []byte(`{"data":{"repository":{"release":{"databaseId":2}}}}`), nil
+				}
+				if args[1] != "repos/owner/plugin/releases/2" {
+					t.Fatalf("unexpected release read: %v", args)
+				}
+				return []byte(fmt.Sprintf(`{"id":2,"tag_name":"v1.0.0","draft":%t,"assets":[{"id":3,"name":"plugin.zip"}]}`, draft)), nil
+			}}
+			release, err := store.Lookup("v1.0.0")
+			if err != nil || release == nil || release.Draft != draft || release.ID != 2 || len(release.Assets) != 1 {
+				t.Fatalf("release was not recovered: %#v, %v", release, err)
+			}
+			missing, err := store.Lookup("v9.0.0")
+			if err != nil || missing != nil {
+				t.Fatalf("missing release: %#v, %v", missing, err)
+			}
+		})
 	}
 }
 
-func TestGitHubCreateFindsNewDraft(t *testing.T) {
-	created := false
-	store := GitHub{Repository: "owner/plugin", run: func(args ...string) ([]byte, error) {
-		if len(args) >= 2 && args[0] == "release" && args[1] == "create" {
-			created = true
-			return []byte("https://github.com/owner/plugin/releases/tag/v1.0.0"), nil
-		}
-		if strings.Contains(strings.Join(args, " "), "/releases/tags/") {
-			return nil, fmt.Errorf("gh: Not Found (HTTP 404)")
-		}
-		if !created {
-			t.Fatal("release lookup occurred before creation")
-		}
-		return []byte(`[[{"id":2,"tag_name":"v1.0.0","draft":true,"assets":[]}]]`), nil
-	}}
-	release, err := store.Create("v1.0.0", strings.Repeat("a", 40))
-	if err != nil || release == nil || !release.Draft {
-		t.Fatalf("created draft was not found: %#v, %v", release, err)
+func TestGitHubCreateDoesNotRequireImmediateReadVisibility(t *testing.T) {
+	for _, tag := range []string{"v1.0.0", "manifest"} {
+		t.Run(tag, func(t *testing.T) {
+			store := GitHub{Repository: "owner/plugin", run: func(args ...string) ([]byte, error) {
+				if len(args) > 2 && args[1] == "--method" && args[2] == "POST" {
+					return []byte(fmt.Sprintf(`{"id":2,"tag_name":%q,"draft":true,"assets":[]}`, tag)), nil
+				}
+				if len(args) > 1 && args[1] == "repos/owner/plugin/git/ref/tags/"+tag {
+					return []byte(`{"ref":"refs/tags/v1.0.0"}`), nil
+				}
+				t.Fatalf("new draft must come from create response, not a possibly stale read: %v", args)
+				return nil, nil
+			}}
+			release, err := store.Create(tag, strings.Repeat("a", 40))
+			if err != nil || release == nil || !release.Draft || release.TagName != tag {
+				t.Fatalf("created draft was not returned: %#v, %v", release, err)
+			}
+		})
 	}
 }
 
